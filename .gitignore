@@ -1,0 +1,8 @@
+vars/secrets.yml
+*.swp
+*.swo
+.ansible
+*.p12
+*.pem
+gce.ini
+gce.json

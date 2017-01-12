@@ -1,0 +1,69 @@
+# vim: set ft=ansible:
+---
+- name: Clean the environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - "vars.yml"
+  tasks:
+    - name: Remove master entry
+      gcdns_record:
+        zone: "gce.openshift3roadshow.com"
+        type: A
+        record: "master.{{ city }}.gce.openshift3roadshow.com"
+        value: "{{ hostvars[config ~ '-' ~ city ~ '-master']['gce_public_ip'] }}"
+        state: absent
+        credentials_file: gce.json
+        service_account_email: 834254560522-compute@developer.gserviceaccount.com
+        project_id: openshift-bu
+
+    - name: Remove apps wildcard
+      gcdns_record:
+        zone: "gce.openshift3roadshow.com"
+        type: A
+        record: "*.apps.{{ city }}.gce.openshift3roadshow.com"
+        value: "{{ hostvars[config ~ '-' ~ city ~ '-infra']['gce_public_ip'] }}"
+        state: absent
+        credentials_file: gce.json
+        service_account_email: 834254560522-compute@developer.gserviceaccount.com
+        project_id: openshift-bu
+
+    - name: Delete infranode group
+      shell: 
+        gcloud compute --project {{ project_id }} instance-groups managed delete {{ config }}-{{ city }}-node-mig
+      tags:
+        - delete_infra_group
+    - name: Delete infranode template
+      shell: 
+        gcloud compute --project {{ project_id }} instance-templates delete {{ config }}-{{ city }}-node-template
+      tags:
+        - delete_infra_template
+    - name: Delete non-managed group instances
+      shell: 
+        gcloud compute --project {{ project_id }} instances delete {{ config }}-{{ city }}-{{ item }}
+      with_items:
+        - master
+        - infra
+        - nfs
+      tags:
+        - delete_nonmig_instances
+    - name: Delete registry bucket
+      shell:
+        gsutil rb -f "gs://{{ config }}-{{ city }}-bucket"
+      tags:
+        - delete_registry_bucket
+    - name: Find orphaned disks
+      shell:
+        gcloud compute --project {{ project_id }} disks list --filter="name:{{ config }}-{{ city }}" --format="value(name)"
+      register: orphaned_disks
+      tags:
+        - find_orphans
+    - name: Delete orphaned disks
+      shell:
+        gcloud compute --project {{ project_id }} disks delete {{ item }}
+      with_items: "{{ orphaned_disks.stdout_lines }}"
+      tags:
+        - delete_orphans
+    

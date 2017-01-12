@@ -1,0 +1,13 @@
+# fighting with jinja
+nfs_group: "tag_{{ config }}-{{ city }}-nfs"
+# default vars for installation
+install_metrics: true
+install_logging: true
+
+#### Vars for the Ansible hosts file
+multi_tenant_setting: "os_sdn_network_plugin_name='redhat/openshift-ovs-multitenant'"
+master_api_port: 443
+ansible_ssh_user: "gcpuser"
+master_lb_dns: "master.{{ city }}.gce.openshift3roadshow.com"
+cloudapps_suffix: "apps.{{ city }}.gce.openshift3roadshow.com"
+openshift_master_overwrite_named_certificates: true

@@ -1,0 +1,237 @@
+# vim: set ft=ansible:
+---
+- name: Create Google Cloud prereqs
+  hosts: localhost
+  connection: local
+  become: false
+  any_errors_fatal: true
+  tags:
+    - google_cloud_prereqs
+  tasks:
+    - name: Check for node template
+      shell: 
+        gcloud compute --project {{ project_id }} instance-templates describe {{ config }}-{{ city }}-node-template
+      register: node_template_exists
+      ignore_errors: true
+
+    - name: Create node template
+      shell: >
+        gcloud compute --project {{ project_id }} instance-templates create {{ config }}-{{ city }}-node-template
+        --machine-type "n1-standard-2" 
+        --network "default" 
+        --tags "{{ config }}-{{ city }}-node,{{ config }}-{{ city }}-purenode,{{ config }}-{{ city }}" 
+        --scopes logging-write,monitoring-write,useraccounts-ro,service-control,service-management,storage-ro,compute-rw
+        --image "/rhel-cloud/rhel-7-v20161212" 
+        --boot-disk-size "35" 
+        --boot-disk-type "pd-ssd" 
+        --boot-disk-device-name "node-template"
+      when: node_template_exists | failed
+
+- name: Provisioning the environment
+  hosts: localhost
+  connection: local
+  become: false
+  any_errors_fatal: true
+  tags:
+    - provisioning
+  tasks:
+    - name: Pull in secrets
+      include_vars: "vars/secrets.yml"
+
+    - name: Provision master
+      gce:
+        instance_names: "{{ config }}-{{ city }}-master"
+        machine_type: n1-standard-2
+        image: rhel-7-v20161212
+        state: present
+        tags:
+          - "{{ config }}-{{ city }}-master"
+          - "{{ config }}-{{ city }}-node"
+          - "{{ config }}-{{ city }}"
+        service_account_permissions:
+          - logging-write
+          - monitoring-write
+          - useraccounts-ro
+          - service-control
+          - service-management
+          - storage-ro
+          - compute-rw
+        credentials_file: "{{ json_filepath }}"
+        service_account_email: "{{ service_account_email }}"
+        project_id: "openshift-bu"
+        zone: "{{ zone }}"
+
+    - name: Provision nfs server
+      gce:
+        instance_names: "{{ config }}-{{ city }}-nfs"
+        machine_type: n1-standard-1
+        image: rhel-7-v20161212
+        state: present
+        tags:
+          - "{{ config }}-{{ city }}-nfs"
+          - "{{ config }}-{{ city }}"
+        service_account_permissions:
+          - logging-write
+          - monitoring-write
+          - useraccounts-ro
+          - service-control
+          - service-management
+          - storage-ro
+          - compute-rw
+        credentials_file: "{{ json_filepath }}"
+        service_account_email: "{{ service_account_email }}"
+        project_id: "openshift-bu"
+        zone: "{{ zone }}"
+
+    - name: Provision infra node
+      gce:
+        instance_names: "{{ config }}-{{ city }}-infra"
+        machine_type: n1-standard-8
+        image: rhel-7-v20161212
+        state: present
+        tags:
+          - "{{ config }}-{{ city }}-infra"
+          - "{{ config }}-{{ city }}-node"
+          - "{{ config }}-{{ city }}"
+        service_account_permissions:
+          - logging-write
+          - monitoring-write
+          - useraccounts-ro
+          - service-control
+          - service-management
+          - storage-rw
+          - compute-rw
+        credentials_file: "{{ json_filepath }}"
+        service_account_email: "{{ service_account_email }}"
+        project_id: "openshift-bu"
+        zone: "{{ zone }}"
+
+    - name: Provision node group
+      gce_mig:
+        name: "{{ config }}-{{ city }}-node-mig"
+        state: present
+        size: "{{ num_nodes }}"
+        template: "{{ config }}-{{ city }}-node-template"
+        credentials_file: "{{ json_filepath }}"
+        service_account_email: "{{ service_account_email }}"
+        project_id: "openshift-bu"
+        zone: "{{ zone }}"
+
+    - name: Check for registry bucket
+      shell:
+        gsutil ls -p "{{ project_id }}" "gs://{{ config }}-{{ city }}-bucket"
+      register: registry_bucket_exists
+      ignore_errors: true
+
+    - name: Create registry bucket
+      shell:
+        gsutil mb -p "{{ project_id }}" -l "{{ region }}" "gs://{{ config }}-{{ city }}-bucket"
+      when: registry_bucket_exists | failed
+
+    - meta: refresh_inventory
+
+- name: Add docker disks to hosts
+  hosts: localhost
+  connection: local
+  become: false
+  any_errors_fatal: true
+  tags:
+    - create_docker_disks
+  any_errors_fatal: true
+  tasks:
+    - name: Disk actions
+      include: disks.yml
+      with_items: "{{ groups['tag_' ~ config ~ '-' ~ city ~ '-node'] }}"
+
+- name: DNS Entries
+  hosts: localhost
+  connection: local
+  become: false
+  any_errors_fatal: true
+  tags:
+    - create_dns_entries
+  tasks:
+    - name: Pull in secrets
+      include_vars: "vars/secrets.yml"
+
+    - name: Add master entry
+      gcdns_record:
+        zone: "gce.openshift3roadshow.com"
+        type: A
+        record: "master.{{ city }}.gce.openshift3roadshow.com"
+        value: "{{ hostvars[config ~ '-' ~ city ~ '-master']['gce_public_ip'] }}"
+        credentials_file: "{{ json_filepath }}"
+        service_account_email: "{{ service_account_email }}"
+        project_id: "openshift-bu"
+
+    - name: Add apps wildcard
+      gcdns_record:
+        zone: "gce.openshift3roadshow.com"
+        type: A
+        record: "*.apps.{{ city }}.gce.openshift3roadshow.com"
+        value: "{{ hostvars[config ~ '-' ~ city ~ '-infra']['gce_public_ip'] }}"
+        credentials_file: "{{ json_filepath }}"
+        service_account_email: "{{ service_account_email }}"
+        project_id: "openshift-bu"
+
+- name: Common
+  hosts: "tag_{{ config }}-{{ city }}"
+  any_errors_fatal: true
+  roles:
+    - common
+  tags:
+    - common_tasks
+
+- name: Configuring openshift-nodes
+  hosts: "tag_{{ config }}-{{ city }}-node"
+  any_errors_fatal: true
+  roles:
+    - "openshift-node"
+  tags: 
+    - openshift_node_tasks
+
+- name: Configure master for install
+  hosts: "tag_{{ config }}-{{ city }}-master"
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles:
+    - "openshift-master"
+  tags:
+    - openshift_master_tasks
+
+- name: Install OpenShift
+  hosts: "tag_{{ config }}-{{ city }}-master"
+  become: true
+  any_errors_fatal: true
+  tags:
+    - openshift_install_tasks
+  tasks:
+    - name: run ansible-playbook -i /root/ansible_hosts /usr/share/ansible/openshift-ansible/playbooks/byo/config.yml
+      shell: "ansible-playbook -i /root/ansible_hosts /usr/share/ansible/openshift-ansible/playbooks/byo/config.yml"
+      register: openshift_install_log
+      tags: 
+      - openshfit_installer
+      
+- name: Configure registry for Google bucket
+  hosts: "tag_{{ config }}-{{ city }}-master"
+  become: true
+  any_errors_fatal: true
+  roles:
+    - "openshift-registry"
+  tags:
+    - openshift_registry_tasks
+
+- name: Post installation steps
+  hosts: "tag_{{ config }}-{{ city }}-master"
+  become: true
+  tags:
+    - openshift_post_install_tasks
+  tasks:
+    - name: Add administrative user to htpasswd file
+      command: "htpasswd -b /etc/origin/master/htpasswd admin openshift3"
+
+    - name: Give administrative user cluster-admin privileges
+      command: "oc adm policy add-cluster-role-to-user cluster-admin admin"
+
+

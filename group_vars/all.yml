@@ -1,0 +1,34 @@
+---
+# google info
+region: us-east1 
+zone: us-east1-b
+project_id: openshift-bu
+
+# environment 
+num_nodes: 24 
+osrelease: 3.3.1.3
+docker_version: 1.10.3
+docker_device: /dev/sdb
+ssh_key: roadshow.pem
+cache_images:
+  - "openshift3/logging-elasticsearch"
+  - "openshift3/logging-deployer"
+  - "openshift3/metrics-cassandra"
+  - "openshift3/metrics-hawkular-metrics"
+  - "openshift3/metrics-heapster"
+  - "openshift3/logging-auth-proxy"
+  - "openshift3/ose-haproxy-router"
+  - "openshift3/ose-deployer"
+  - "openshift3/logging-deployment"
+  - "openshift3/logging-fluentd"
+  - "openshift3/logging-kibana"
+  - "openshift3/metrics-deployer"
+  - "openshift3/ose-pod"
+  - "openshift3/ose-docker-registry"
+  - "openshift3/registry-console"
+  - "openshift3/logging-curator"
+  - "openshiftdemos/parksmap:0.4"
+  - "openshift3/jenkins-1-rhel7"
+  - "jorgemoralespou/s2i-java:latest"
+  - "registry.access.redhat.com/jboss-eap-7/eap70-openshift:latest"
+  - "registry.access.redhat.com/rhscl/mongodb-32-rhel7:latest"

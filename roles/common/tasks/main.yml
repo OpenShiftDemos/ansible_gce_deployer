@@ -1,0 +1,63 @@
+# vim: set ft=ansible:
+---
+- name: Pull in secrets
+  include_vars: "vars/secrets.yml"
+
+- name: Install subscription-manager
+  tags: 
+    - install_subscription_manager
+  yum:
+    name: subscription-manager
+    state: present
+
+- name: Force unregister before register
+  redhat_subscription:
+    state: absent
+  ignore_errors: true
+
+- name: register node with subscription-manager
+  redhat_subscription: 
+    state: present 
+    username: "{{ rhn_user }}" 
+    password: "{{ rhn_pass }}" 
+    autosubscribe: false
+  register: task_result
+  until: task_result | succeeded
+  retries: 10
+  delay: 5
+
+- name: attach node to subscription pool
+  command: subscription-manager attach --pool {{ item }}
+  register: task_result
+  until: task_result.rc == 0
+  retries: 10
+  delay: 1
+  ignore_errors: no
+  with_items: '{{ pool_id }}'
+
+- name: disable all repos
+  command: subscription-manager repos --disable=*
+
+- name: enable repos for rhel
+  command: subscription-manager repos --enable "{{item}}"
+  with_items: 
+    - "rhel-7-server-rpms"
+    - "rhel-7-server-extras-rpms"
+    - "rhel-7-server-ose-3.3-rpms"
+
+- name: Install common packages
+  yum: 
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - python
+    - unzip
+    - bash-completion
+    - tmux
+    - bind-utils
+    - wget
+    - ansible
+    - git
+    - vim-enhanced
+  tags: 
+    - install_basic_packages

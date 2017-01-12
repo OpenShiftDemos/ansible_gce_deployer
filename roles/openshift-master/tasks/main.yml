@@ -1,0 +1,61 @@
+# vim: set ft=ansible:
+---
+- name: installer packages
+  yum: 
+    name: "{{ item }}" 
+    state: present
+  with_items:
+    - "atomic-openshift-clients-{{ osrelease }}"
+    - "atomic-openshift-utils"
+    - "atomic-openshift-{{ osrelease }}"
+    - "httpd-tools"
+  tags:
+   - install_openshift_installer_packages
+
+- name: create root ssh folder
+  file:
+    path: /root/.ssh
+    state: directory
+    mode: 0700
+  tags:
+    - create_root_ssh_folder
+
+- name: copy the environment .pem key
+  copy: 
+    src: ~/.ssh/{{ ssh_key }} 
+    dest: /root/.ssh/{{ config }}.pem 
+    owner: root 
+    group: root 
+    mode: 0400
+  tags: 
+    - copy_env_private_key 
+
+- name: deploy ssh configuration for master
+  template:
+    src: bastion_ssh_config.j2
+    dest: /root/.ssh/config
+    owner: root
+    group: root
+    mode: 0600
+  tags:
+    - master_ssh_configuration
+
+- name: deploy installer configuration
+  template:
+    src: hosts.{{ config }}.j2
+    dest: /root/ansible_hosts
+    owner: root
+    group: root
+    mode: 0600
+  tags:
+    - installer_configuration
+
+- name: Add log path to Ansible configuration
+  lineinfile:
+    regexp: "^#log_path"
+    dest: "/etc/ansible/ansible.cfg"
+    line: "log_path = /root/ansible.log"
+    state: present
+  tags:
+    - ansible_log_configuration
+
